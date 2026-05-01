@@ -1,0 +1,255 @@
+package main;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.HashSet;
+import java.util.Set;
+
+public class GamePanel extends JPanel implements Runnable {
+    
+    // Screen settings
+    final int originalTileSize = 16;
+    final int scale = 3;
+    final int tileSize = originalTileSize * scale;
+    final int maxScreenCol = 16;
+    final int maxScreenRow = 12;
+    final int screenWidth = tileSize * maxScreenCol;
+    final int screenHeight = tileSize * maxScreenRow;
+    
+    // Game states
+    final int STATE_MENU = 0;
+    final int STATE_TIMERSELECT = 1;
+    final int STATE_GAME = 2;
+    final int STATE_GAMEOVER = 3;
+    int gameState = STATE_MENU;
+    
+    // UI Elements
+    Rectangle playButton = new Rectangle(screenWidth / 2 - 110, screenHeight / 2 + 80, 220, 58);
+    Rectangle timerBtn60 = new Rectangle(screenWidth / 2 - 240, screenHeight / 2 - 60, 140, 140);
+    Rectangle timerBtn99 = new Rectangle(screenWidth / 2 - 70, screenHeight / 2 - 60, 140, 140);
+    Rectangle timerBtnInf = new Rectangle(screenWidth / 2 + 100, screenHeight / 2 - 60, 140, 140);
+    Rectangle startFightBtn = new Rectangle(screenWidth / 2 - 120, screenHeight / 2 + 110, 240, 58);
+    Rectangle backBtn = new Rectangle(30, 20, 90, 34);
+    
+    boolean hoveringPlay = false;
+    boolean hovering60 = false;
+    boolean hovering99 = false;
+    boolean hoveringInf = false;
+    boolean hoveringStart = false;
+    boolean hoveringBack = false;
+    
+    // Timer
+    int selectedTimerSeconds = 60;
+    int timerFrames = 60 * 60;
+    boolean timerInfinite = false;
+    
+    // Game loop
+    Thread gameThread;
+    final int FPS = 60;
+    
+    // Input
+    Set<Integer> keysPressed = new HashSet<>();
+    
+    // Game objects
+    Player player1;
+    Player player2;
+    GameState gameStateObj;
+//    UIManager uiManager;
+    Renderer renderer;
+    
+    public GamePanel() {
+        this.setPreferredSize(new Dimension(screenWidth, screenHeight));
+        this.setBackground(Color.black);
+        this.setDoubleBuffered(true);
+        this.setFocusable(true);
+        
+        // Initialize managers and objects
+        player1 = new Player(150, 430, 1);
+        player2 = new Player(580, 430, -1);
+        gameStateObj = new GameState();
+//        uiManager = new UIManager(screenWidth, screenHeight, tileSize);   
+        renderer = new Renderer(screenWidth, screenHeight);
+        
+        setupInputListeners();
+    }
+    
+    private void setupInputListeners() {
+        this.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                keysPressed.add(e.getKeyCode());
+                if (gameState == STATE_GAME) {
+                    if (e.getKeyCode() == KeyEvent.VK_W && player1.onGround) {
+                        player1.vy = -13f;
+                        player1.onGround = false;
+                    }
+                    if (e.getKeyCode() == KeyEvent.VK_UP && player2.onGround) {
+                        player2.vy = -13f;
+                        player2.onGround = false;
+                    }
+                }
+            }
+            
+            @Override
+            public void keyReleased(KeyEvent e) {
+                keysPressed.remove(e.getKeyCode());
+            }
+        });
+        
+        this.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                handleClick(e.getPoint());
+            }
+        });
+        
+        this.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                handleHover(e.getPoint());
+            }
+        });
+    }
+    
+    void handleClick(Point p) {
+        if (gameState == STATE_MENU) {
+            if (playButton.contains(p)) {
+                gameState = STATE_TIMERSELECT;
+                repaint();
+            }
+        } else if (gameState == STATE_TIMERSELECT) {
+            if (timerBtn60.contains(p)) {
+                selectedTimerSeconds = 60;
+                timerInfinite = false;
+                repaint();
+            }
+            if (timerBtn99.contains(p)) {
+                selectedTimerSeconds = 99;
+                timerInfinite = false;
+                repaint();
+            }
+            if (timerBtnInf.contains(p)) {
+                timerInfinite = true;
+                repaint();
+            }
+            if (startFightBtn.contains(p)) {
+                startGame();
+            }
+            if (backBtn.contains(p)) {
+                gameState = STATE_MENU;
+                repaint();
+            }
+        } else if (gameState == STATE_GAMEOVER) {
+            if (playButton.contains(p)) {
+                gameState = STATE_TIMERSELECT;
+                repaint();
+            }
+        }
+    }
+    
+    void handleHover(Point p) {
+        hoveringPlay = (gameState == STATE_MENU || gameState == STATE_GAMEOVER) && playButton.contains(p);
+        hovering60 = gameState == STATE_TIMERSELECT && timerBtn60.contains(p);
+        hovering99 = gameState == STATE_TIMERSELECT && timerBtn99.contains(p);
+        hoveringInf = gameState == STATE_TIMERSELECT && timerBtnInf.contains(p);
+        hoveringStart = gameState == STATE_TIMERSELECT && startFightBtn.contains(p);
+        hoveringBack = gameState == STATE_TIMERSELECT && backBtn.contains(p);
+        
+        boolean anyHover = hoveringPlay || hovering60 || hovering99 || hoveringInf || hoveringStart || hoveringBack;
+        setCursor(anyHover ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+        repaint();
+    }
+    
+    void startGame() {
+        player1.reset(150, 430, 1);
+        player2.reset(580, 430, -1);
+        gameStateObj.reset();
+        
+        timerFrames = timerInfinite ? Integer.MAX_VALUE : selectedTimerSeconds * FPS;
+        gameState = STATE_GAME;
+        playButton = new Rectangle(screenWidth / 2 - 130, screenHeight / 2 + 60, 260, 56);
+        
+        if (gameThread == null || !gameThread.isAlive()) {
+            gameThread = new Thread(this);
+            gameThread.start();
+        }
+    }
+    
+    @Override
+    public void run() {
+        double interval = 1_000_000_000.0 / FPS;
+        double nextDraw = System.nanoTime() + interval;
+        
+        while (gameState == STATE_GAME) {
+            update();
+            repaint();
+            
+            try {
+                long rem = (long)((nextDraw - System.nanoTime()) / 1_000_000);
+                if (rem > 0) Thread.sleep(rem);
+                nextDraw += interval;
+            } catch (InterruptedException ignored) {}
+        }
+    }
+    
+    void update() {
+        if (gameState != STATE_GAME) return;
+        
+        // Timer countdown
+        if (!timerInfinite && timerFrames > 0) {
+            timerFrames--;
+            if (timerFrames <= 0) {
+                if (player1.hp > player2.hp) gameStateObj.winner = "PLAYER 1 WINS! (Time)";
+                else if (player2.hp > player1.hp) gameStateObj.winner = "PLAYER 2 WINS! (Time)";
+                else gameStateObj.winner = "DRAW!";
+                gameState = STATE_GAMEOVER;
+                return;
+            }
+        }
+        
+        // Handle input
+        boolean p1left = keysPressed.contains(KeyEvent.VK_A);
+        boolean p1right = keysPressed.contains(KeyEvent.VK_D);
+        boolean p1punch = keysPressed.contains(KeyEvent.VK_H);
+        boolean p1kick = keysPressed.contains(KeyEvent.VK_J);
+        
+        boolean p2left = keysPressed.contains(KeyEvent.VK_LEFT);
+        boolean p2right = keysPressed.contains(KeyEvent.VK_RIGHT);
+        boolean p2punch = keysPressed.contains(KeyEvent.VK_NUMPAD4);
+        boolean p2kick = keysPressed.contains(KeyEvent.VK_NUMPAD5);
+        
+        // Update players
+        player1.update(p1left, p1right, p1punch, p1kick, player2);
+        player2.update(p2left, p2right, p2punch, p2kick, player1);
+        
+        // Check KO
+        if (player1.hp <= 0 || player2.hp <= 0) {
+            gameStateObj.winner = (player1.hp <= 0) ? "PLAYER 2 WINS! KO!" : "PLAYER 1 WINS! KO!";
+            gameState = STATE_GAMEOVER;
+        }
+        
+        // Update effects
+        gameStateObj.updateEffects();
+    }
+    
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        
+        switch (gameState) {
+            case STATE_MENU -> renderer.drawMenu(g2, playButton, hoveringPlay);
+            case STATE_TIMERSELECT -> renderer.drawTimerSelect(g2, timerBtn60, timerBtn99, timerBtnInf, 
+                startFightBtn, backBtn, hovering60, hovering99, hoveringInf, hoveringStart, hoveringBack,
+                selectedTimerSeconds, timerInfinite);
+            case STATE_GAME -> renderer.drawGame(g2, player1, player2, gameStateObj, timerFrames, timerInfinite, FPS);
+            case STATE_GAMEOVER -> renderer.drawGameOver(g2, player1, player2, gameStateObj, playButton, hoveringPlay,
+                timerFrames, timerInfinite, FPS);
+        }
+        
+        g2.dispose();
+    }
+}
